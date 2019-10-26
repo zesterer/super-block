@@ -1,0 +1,524 @@
+:macro BEGIN f {
+	i := f
+	vf := 12
+	i += vf
+	save ve
+	v0 := 28
+	jump0 f
+	0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+}
+
+:macro END f {
+	i := f
+	vf := 12
+	i += vf
+	load ve
+	return
+}
+
+:macro WAIT_FRAME {
+	loop
+  	vf := delay
+    if vf != 0 then
+  again
+  vf := 3
+  delay := vf
+}
+
+:macro WAIT_KEY k {
+	loop
+		vf := key
+		if vf != k then
+	again
+}
+
+:macro SWAP x y {
+	x ^= y
+	y ^= x
+	x ^= y
+}
+
+:macro LOAD_BYTE addr reg {
+	i := addr
+	load v0
+	reg := v0
+}
+
+:macro SAVE_BYTE addr reg {
+	i := addr
+	v0 := reg
+	save v0
+}
+
+: main
+	loop
+		run_menu
+		loop
+			run_game
+		again
+	again
+
+:const START_LEVEL 1
+: level_var 1
+: px_var 32
+: py_var 128
+: abilities_var 0b00000001
+
+: run_menu
+	BEGIN run_menu
+		draw_logo
+		WAIT_KEY OCTO_KEY_W
+	END run_menu
+
+: draw_logo
+	BEGIN draw_logo
+	v0 := 28
+	v1 := 12
+	i := logo_sprite
+	sprite v0 v1 8
+	END draw_logo
+
+: logo_sprite
+	0b11111111
+	0b10000001
+	0b10100101
+	0b10000001
+	0b10100101
+	0b10011001
+	0b10000001
+	0b11111111
+
+: run_game
+	BEGIN run_game
+		:alias px va
+		:alias py vb
+		:alias ph vc
+		:alias pv vd
+		:alias tick v9
+		:alias physics v8 # 0 = ON_GROUND
+		:alias abilities v7
+		:alias jumps_left v6
+
+		:const PLAYER_HEIGHT 4
+		:const ON_GROUND 0b00000001
+		:const ABILITY_DOUBLE_JUMP 0b00000001
+
+		:macro GET_FLAG flags x { # Make v0 > 0 if flag if set
+			v0 := flags
+			ve := x
+			v0 &= ve
+		}
+
+		:macro SET_FLAG flags x { # Set a flag
+			ve := x
+			flags |= ve
+		}
+
+		LOAD_BYTE px_var px
+		LOAD_BYTE py_var py
+		ph := 0
+		pv := 0
+		LOAD_BYTE abilities_var abilities
+
+		draw_room
+
+		loop
+			# Events
+			if px >= 240 begin # Next level
+				LOAD_BYTE level_var v0
+				v0 += 1
+				SAVE_BYTE level_var v0
+				SAVE_BYTE px_var 17
+				SAVE_BYTE py_var py
+				END run_game
+			end
+			if px < 16 begin # Previous level
+				LOAD_BYTE level_var v0
+				v0 += -1
+				SAVE_BYTE level_var v0
+				SAVE_BYTE px_var 239
+				SAVE_BYTE py_var py
+				SAVE_BYTE abilities_var abilities
+				END run_game
+			end
+			if py >= 220 begin # Death
+				v0 := START_LEVEL
+				SAVE_BYTE level_var v0
+				SAVE_BYTE px_var 32
+				SAVE_BYTE py_var 128
+				SAVE_BYTE abilities_var abilities
+				END run_game
+			end
+
+			# Input
+			v0 := OCTO_KEY_A if v0 key then ph += -2
+			v0 := OCTO_KEY_D if v0 key then ph += 2
+			v0 := OCTO_KEY_W if v0 key begin
+				GET_FLAG physics ON_GROUND
+				if v0 != 0 begin
+					pv := 230
+				else
+					if jumps_left != 0 begin
+						if pv < 128 begin
+							pv := 230
+							jumps_left += -1
+							#v0 := 16
+							#buzzer := v0
+						end
+					end
+				end
+			end
+			# TESTING
+			v0 := OCTO_KEY_E if v0 key begin
+				LOAD_BYTE level_var v0
+				v0 += 1
+				SAVE_BYTE level_var v0
+				END run_game
+			end
+
+			# Gravity
+			pv += 3
+
+			# Friction
+			if ph != 0 begin if ph > 127 begin ph += 1 else ph += -1 end end
+			if pv != 0 begin if pv > 127 begin pv += 1 else pv += -1 end end
+
+			# Max hspeed
+			if ph > 127 begin if ph < 252 begin ph := 252 end end
+			if ph < 128 begin if ph > 4 begin ph := 4 end end
+			# Max vspeed
+			if pv < 128 begin if pv > 24 begin pv := 24 end end
+
+			# Reset flags
+			v0 := 0b11111110
+			physics &= v0
+
+			# Player collision detection and movement
+			i := player_hitbox
+			v0 := px # sub-pixel x
+			v0 += ph
+			v0 >>= v0
+			v0 >>= v0
+			v1 := py # sub-pixel y
+			v1 >>= v1
+			v1 >>= v1
+			v1 >>= v1
+			sprite v0 v1 PLAYER_HEIGHT
+			if vf == 1 begin
+				v2 := 0b11111100
+				px &= v2 # Limit px
+				ph := 0 # Reset hspeed
+			else
+				px += ph
+			end
+			sprite v0 v1 PLAYER_HEIGHT
+			v0 := px # sub-pixel x
+			v0 >>= v0
+			v0 >>= v0
+			v1 := py # sub-pixel y
+			v1 += pv
+			v1 >>= v1
+			v1 >>= v1
+			v1 >>= v1
+			sprite v0 v1 PLAYER_HEIGHT
+			if vf == 1 begin
+				v2 := 0b11111000
+				py &= v2 # Limit py
+				pv := 0 # Reset vspeed
+			else
+				if py < 64 begin # If near the top of the screen...
+					v2 := py
+					v2 += pv
+					if v2 > 192 begin # ...and moving would put as at the bottom of the screen...
+						py := 0 # stick to the top of the screen
+					else
+						py := v2
+					end
+				else
+					py += pv
+				end
+			end
+			sprite v0 v1 PLAYER_HEIGHT
+			# Attempt to test collision with the ground
+			v1 += 1
+			sprite v0 v1 PLAYER_HEIGHT
+			if vf == 1 begin
+				SET_FLAG physics ON_GROUND
+				SWAP v0 v2
+				GET_FLAG abilities ABILITY_DOUBLE_JUMP
+				if v0 != 0 begin
+					jumps_left := 1
+				else
+					jumps_left := 0
+				end
+				SWAP v2 v0
+			end
+			sprite v0 v1 PLAYER_HEIGHT
+
+			# Min y
+			if py < 8 begin py := 8 end
+
+			# Draw things
+			draw_game
+			WAIT_FRAME
+			draw_game
+
+			tick += 1
+		again
+	END run_game
+
+: draw_game
+	# Choose player sprite
+	GET_FLAG physics ON_GROUND
+	if v0 == 0 begin
+		i := player_sprite_3
+	else
+		if ph == 0 begin
+			i := player_sprite_2
+		else
+			# Animation
+			v0 := 0b10
+			v1 := tick
+			v1 &= v0
+			if v1 == 0 begin
+				i := player_sprite_0
+			else
+				i := player_sprite_1
+			end
+		end
+	end
+
+	# Player sub-pixel position to screen
+	v2 >>= px
+	v2 >>= v2
+	v3 >>= py
+	v3 >>= v3
+	v3 >>= v3
+
+	sprite v2 v3 PLAYER_HEIGHT
+	draw_enemies
+	return
+
+:const ENEMY_COUNT 4
+:const ENEMY_BYTES 6
+:const ENEMIES_BYTES 24 # 6 * 4
+:const ENEMY_KIND_NONE 0
+:macro ENEMY_STATE x y kind a b c {
+	x
+	y
+	kind
+	a b c # state (different for each enemy kind)
+}
+:macro ENEMY_NONE { 0 0 ENEMY_KIND_NONE 0 0 0 }
+: enemy_states_var
+	ENEMY_STATE 0 0 0 0 0 0
+	ENEMY_STATE 0 0 0 0 0 0
+	ENEMY_STATE 0 0 0 0 0 0
+	ENEMY_STATE 0 0 0 0 0 0
+
+: draw_enemies
+	BEGIN draw_enemies
+
+	:alias idx va
+	:alias ex v0
+	:alias ey v1
+	:alias ekind v2
+	:alias estate_a v3
+	:alias estate_b v4
+	:alias estate_c v5
+
+	:macro LOAD_ENEMY idx {
+		i := enemy_states_var
+		i += idx
+		load v5
+	}
+	:macro SAVE_ENEMY idx {
+		i := enemy_states_var
+		i += idx
+		save v5
+	}
+
+	idx := 0
+	loop
+		i := enemy_states_var
+		LOAD_ENEMY idx
+
+		if ekind != 0 begin
+			sprite ex ey 4
+		end
+
+		idx += ENEMY_BYTES
+		if idx != ENEMIES_BYTES then
+	again
+	END draw_enemies
+
+: enemy_sprite
+	0b00100000
+	0b01110000
+	0b10101000
+	0b11111000
+
+: player_hitbox
+	0b11110000
+	0b11110000
+	0b11110000
+	0b11110000
+: player_sprite_0
+	0b11110000
+	0b10010000
+	0b10110000
+	0b11000000
+: player_sprite_1
+	0b11110000
+	0b10010000
+	0b11010000
+	0b00110000
+: player_sprite_2
+	0b11110000
+	0b10010000
+	0b10010000
+	0b11110000
+: player_sprite_3
+	0b11110000
+	0b10010000
+	0b10010000
+	0b01100000
+
+: draw_room
+	BEGIN draw_room
+		:alias x v2
+		:alias y v3
+		:alias idx v4
+		:alias variant v5
+		:alias mask v6
+
+		clear
+
+		i := level_var
+		load v0
+		idx := 0
+		loop
+			idx += 16 # bytes per level
+			v0 += -1
+			if v0 != 0 then
+		again
+
+		x := 0
+		y := 0
+		i := level_solids
+		i += idx
+		load v0
+		mask := v0
+		loop
+			v0 := 0b10000000
+			v1 := mask
+			v1 &= v0
+			if v1 != 0 begin
+				i := floor_sprites
+				v0 := random 0b1100
+				i += v0
+				sprite x y 4
+			end
+
+			x += 4
+			mask <<= mask
+			# Are we on the next byte yet?
+			v0 := 0b11111
+			v1 := x
+			v1 &= v0
+			if v1 == 0 begin # Next byte
+				idx += 1
+				i := level_solids
+				i += idx
+				load v0
+				mask := v0
+			end
+			if x == 64 begin # Next row
+				x := 0
+				y += 4
+			end
+			if y != 32 then
+		again
+	END draw_room
+
+: floor_sprites
+	0b11110000
+	0b11110000
+	0b11110000
+	0b11110000
+
+	0b11110000
+	0b10110000
+	0b11010000
+	0b11110000
+
+	0b11110000
+	0b11010000
+	0b10110000
+	0b11110000
+
+	0b11110000
+	0b11110000
+	0b11110000
+	0b11110000
+: level_solids
+	# 0
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00100000 0b00000000
+	0b00100000 0b00000001
+	0b00100000 0b00000001
+	0b00100000 0b00000001
+	0b00100000 0b11111111
+	# 1
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b10000000 0b00000000
+	0b10000000 0b00000000
+	0b10000000 0b00000000
+	0b11111111 0b11111111
+	# 2
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b11111110 0b01111111
+	# 3
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000111 0b11100000
+	0b00000100 0b00100000
+	0b00001100 0b00110000
+	0b00001000 0b00010000
+	0b11111000 0b00011111
+	# 4
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00011111
+	0b00000000 0b00000000
+	0b00000000 0b10000000
+	0b00000010 0b00000000
+	0b00000000 0b00000000
+	0b11111000 0b00111111
+	# 5
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b11100000 0b00000111
+	0b00000000 0b10000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b00000000 0b00000000
+	0b11110000 0b00000000
+: level_meta
+	# 0
+	ENEMY_NONE
+	ENEMY_NONE
+	ENEMY_NONE
+	ENEMY_NONE
