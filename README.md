@@ -1,6 +1,8 @@
 # Super Block
 
-# <img src="misc/gameplay.gif" alt="Some Super Block gameplay" width="100%"/>
+# <img src="misc/gameplay.png" alt="Some Super Block gameplay"/>
+
+[Play Super Block](http://johnearnest.github.io/Octo/index.html?key=yRH33CPo)
 
 Super Block is a game written for Octojam, the game jam for the CHIP-8.
 
